@@ -1,68 +1,152 @@
-# codex-proxy
+# codex-proxy-launcher
 
-让 macOS 版 [Codex](https://github.com/openai/codex) 通过 Clash 代理联网的启动脚本。解决在不开启 TUN 模式的情况下，Codex App 无法走代理访问 API 的问题，同时不影响其他 App 的代理设置。
+Start Codex Desktop with process-level proxy environment variables.
 
-## 背景
+This is useful when Codex can make normal HTTP requests through a proxy, but WebSocket connections do not reliably follow the system proxy. Starting Codex with `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` in its process environment can make both HTTP and WebSocket traffic use the local Clash proxy without enabling TUN mode.
 
-macOS 下用 Codex App + Clash 环境时，如果不开 TUN 模式，Codex 无法通过代理连接后端服务。开启 TUN 模式会影响整机网络流量。这个脚本通过环境变量注入代理配置，只让 Codex 进程走代理。
+## Supported Platforms
 
-## 前置条件
+- macOS: `codex-proxy`
+- Windows: `codex-proxy.ps1`
 
-- macOS
-- [Clash](https://github.com/Dreamacro/clash) 或兼容客户端（Clash Verge、ClashX 等）
-- 代理端口默认 `7890`（Clash 默认端口）
+## Defaults
 
-## 安装
+Both scripts use these defaults:
+
+```text
+HTTP proxy:  http://127.0.0.1:7890
+ALL proxy:   socks5://127.0.0.1:7890
+NO_PROXY:    localhost,127.0.0.1,::1
+```
+
+Override them with environment variables:
+
+```bash
+CODEX_HTTP_PROXY=http://127.0.0.1:7890
+CODEX_ALL_PROXY=socks5://127.0.0.1:7890
+CODEX_NO_PROXY=localhost,127.0.0.1,::1
+```
+
+On Windows, you can also set `CODEX_EXE` to the full `Codex.exe` path if auto-detection does not find it.
+Set `CODEX_PROXY_STATE_DIR` if you want logs and pid files somewhere other than `%LOCALAPPDATA%\codex-proxy`.
+For the Microsoft Store/Appx build, the script launches Codex through `shell:AppsFolder` because Windows blocks direct execution from `C:\Program Files\WindowsApps`. It temporarily writes the proxy variables to `HKCU:\Environment` only for the launch window, then restores the previous values.
+
+## macOS
+
+Install:
 
 ```bash
 mkdir -p ~/bin
-
-# 将 codex-proxy 脚本复制到 ~/bin/
 cp codex-proxy ~/bin/codex-proxy
 chmod +x ~/bin/codex-proxy
-
-# 确保 ~/bin 在 PATH 中
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-## 使用
+Usage:
 
 ```bash
-codex-proxy start     # 启动 Codex（带代理）
-codex-proxy stop      # 退出 Codex
-codex-proxy restart   # 重启 Codex
-codex-proxy status    # 查看运行状态
-codex-proxy log       # 实时查看日志
+codex-proxy start
+codex-proxy stop
+codex-proxy restart
+codex-proxy status
+codex-proxy log
 ```
 
-## 自定义配置
-
-通过环境变量覆盖默认值：
+macOS-specific environment variable:
 
 ```bash
-# 自定义 Codex App 路径
 export CODEX_APP="/Applications/Codex.app"
-
-# 自定义 HTTP 代理地址
-export CODEX_HTTP_PROXY="http://127.0.0.1:7890"
-
-# 自定义 SOCKS5 代理地址
-export CODEX_ALL_PROXY="socks5://127.0.0.1:7890"
-
-# 自定义不走代理的地址列表
-export CODEX_NO_PROXY="localhost,127.0.0.1,::1"
 ```
 
-可将以上配置写入 `~/.zshrc` 持久化。
+Logs:
 
-## 原理
+```text
+~/Library/Logs/codex-proxy.log
+```
 
-Codex App 启动时，通过 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 等环境变量注入代理配置，使 Codex 进程的所有网络请求经过 Clash 代理转发。脚本在启动前会先退出已有的 Codex 进程，确保不带代理的残留进程不存在。
+## Windows
 
-## 日志
+Run from PowerShell:
 
-日志文件位于 `~/Library/Logs/codex-proxy.log`。
+```powershell
+.\codex-proxy.ps1 start
+.\codex-proxy.ps1 stop
+.\codex-proxy.ps1 restart
+.\codex-proxy.ps1 status
+.\codex-proxy.ps1 log
+```
+
+If PowerShell blocks local scripts, run this once in the current shell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+If Codex is not found automatically:
+
+```powershell
+$env:CODEX_EXE = "$env:LOCALAPPDATA\Programs\Codex\Codex.exe"
+.\codex-proxy.ps1 start
+```
+
+Persist custom proxy settings:
+
+```powershell
+[Environment]::SetEnvironmentVariable("CODEX_HTTP_PROXY", "http://127.0.0.1:7890", "User")
+[Environment]::SetEnvironmentVariable("CODEX_ALL_PROXY", "socks5://127.0.0.1:7890", "User")
+[Environment]::SetEnvironmentVariable("CODEX_NO_PROXY", "localhost,127.0.0.1,::1", "User")
+```
+
+Manually set proxy environment variables for Codex App:
+
+```powershell
+[Environment]::SetEnvironmentVariable("HTTP_PROXY", "http://127.0.0.1:7890", "User")
+[Environment]::SetEnvironmentVariable("HTTPS_PROXY", "http://127.0.0.1:7890", "User")
+[Environment]::SetEnvironmentVariable("ALL_PROXY", "socks5://127.0.0.1:7890", "User")
+[Environment]::SetEnvironmentVariable("NO_PROXY", "localhost,127.0.0.1,::1", "User")
+```
+
+After setting user environment variables manually, fully quit and restart Codex App so the new process can read them. If Codex is still running in the background, close it from Task Manager or run:
+
+```powershell
+Stop-Process -Name Codex -Force
+```
+
+Then open Codex App again from the Start menu.
+
+View the current proxy variables:
+
+```powershell
+Get-ChildItem Env:*PROXY*
+[Environment]::GetEnvironmentVariable("HTTP_PROXY", "User")
+[Environment]::GetEnvironmentVariable("HTTPS_PROXY", "User")
+[Environment]::GetEnvironmentVariable("ALL_PROXY", "User")
+[Environment]::GetEnvironmentVariable("NO_PROXY", "User")
+```
+
+Logs:
+
+```text
+%LOCALAPPDATA%\codex-proxy\Logs\codex-proxy.log
+```
+
+## How It Works
+
+The scripts first close any existing Codex process, then relaunch Codex with these environment variables:
+
+```text
+HTTP_PROXY
+HTTPS_PROXY
+ALL_PROXY
+http_proxy
+https_proxy
+all_proxy
+NO_PROXY
+no_proxy
+```
+
+That makes Codex and its child processes connect through the local proxy, including WebSocket clients that read process-level proxy variables but do not fully honor the OS system proxy.
 
 ## License
 
