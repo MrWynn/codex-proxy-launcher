@@ -98,6 +98,8 @@ Persist custom proxy settings:
 [Environment]::SetEnvironmentVariable("CODEX_NO_PROXY", "localhost,127.0.0.1,::1", "User")
 ```
 
+The Windows script reads `CODEX_*` values from the current PowerShell process first, then from User environment variables.
+
 Manually set proxy environment variables for Codex App:
 
 ```powershell
@@ -247,6 +249,8 @@ $env:CODEX_EXE = "$env:LOCALAPPDATA\Programs\Codex\Codex.exe"
 [Environment]::SetEnvironmentVariable("CODEX_ALL_PROXY", "socks5://127.0.0.1:7890", "User")
 [Environment]::SetEnvironmentVariable("CODEX_NO_PROXY", "localhost,127.0.0.1,::1", "User")
 ```
+
+Windows 脚本会优先读取当前 PowerShell 进程中的 `CODEX_*` 变量；如果没有，再读取 User 级环境变量。
 
 手动为 Codex App 设置代理环境变量：
 

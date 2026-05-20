@@ -6,12 +6,33 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$HttpProxy = if ($env:CODEX_HTTP_PROXY) { $env:CODEX_HTTP_PROXY } else { "http://127.0.0.1:7890" }
-$AllProxy = if ($env:CODEX_ALL_PROXY) { $env:CODEX_ALL_PROXY } else { "socks5://127.0.0.1:7890" }
-$NoProxy = if ($env:CODEX_NO_PROXY) { $env:CODEX_NO_PROXY } else { "localhost,127.0.0.1,::1" }
+function Get-ConfigEnvironmentValue {
+  param([string]$Name)
 
-$StateDir = if ($env:CODEX_PROXY_STATE_DIR) {
-  $env:CODEX_PROXY_STATE_DIR
+  $processValue = [Environment]::GetEnvironmentVariable($Name, "Process")
+  if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+    return $processValue
+  }
+
+  $userValue = [Environment]::GetEnvironmentVariable($Name, "User")
+  if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+    return $userValue
+  }
+
+  return $null
+}
+
+$HttpProxyValue = Get-ConfigEnvironmentValue -Name "CODEX_HTTP_PROXY"
+$AllProxyValue = Get-ConfigEnvironmentValue -Name "CODEX_ALL_PROXY"
+$NoProxyValue = Get-ConfigEnvironmentValue -Name "CODEX_NO_PROXY"
+$StateDirValue = Get-ConfigEnvironmentValue -Name "CODEX_PROXY_STATE_DIR"
+
+$HttpProxy = if ($HttpProxyValue) { $HttpProxyValue } else { "http://127.0.0.1:7890" }
+$AllProxy = if ($AllProxyValue) { $AllProxyValue } else { "socks5://127.0.0.1:7890" }
+$NoProxy = if ($NoProxyValue) { $NoProxyValue } else { "localhost,127.0.0.1,::1" }
+
+$StateDir = if ($StateDirValue) {
+  $StateDirValue
 } else {
   Join-Path $env:LOCALAPPDATA "codex-proxy"
 }
@@ -140,16 +161,19 @@ function Get-CodexAppxInfo {
 function Get-CodexExecutable {
   $candidates = New-Object System.Collections.Generic.List[string]
 
-  if ($env:CODEX_EXE) {
-    $candidates.Add($env:CODEX_EXE)
+  $codexExe = Get-ConfigEnvironmentValue -Name "CODEX_EXE"
+  $codexApp = Get-ConfigEnvironmentValue -Name "CODEX_APP"
+
+  if ($codexExe) {
+    $candidates.Add($codexExe)
   }
 
-  if ($env:CODEX_APP) {
-    if (Test-Path -LiteralPath $env:CODEX_APP -PathType Leaf) {
-      $candidates.Add($env:CODEX_APP)
-    } elseif (Test-Path -LiteralPath $env:CODEX_APP -PathType Container) {
-      $candidates.Add((Join-Path $env:CODEX_APP "Codex.exe"))
-      $candidates.Add((Join-Path $env:CODEX_APP "app\Codex.exe"))
+  if ($codexApp) {
+    if (Test-Path -LiteralPath $codexApp -PathType Leaf) {
+      $candidates.Add($codexApp)
+    } elseif (Test-Path -LiteralPath $codexApp -PathType Container) {
+      $candidates.Add((Join-Path $codexApp "Codex.exe"))
+      $candidates.Add((Join-Path $codexApp "app\Codex.exe"))
     }
   }
 
