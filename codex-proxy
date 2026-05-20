@@ -1,0 +1,157 @@
+#!/bin/zsh
+
+set -u
+
+APP_BUNDLE="${CODEX_APP:-/Applications/Codex.app}"
+HTTP_PROXY_ADDR="${CODEX_HTTP_PROXY:-http://127.0.0.1:7890}"
+ALL_PROXY_ADDR="${CODEX_ALL_PROXY:-socks5://127.0.0.1:7890}"
+NO_PROXY_LIST="${CODEX_NO_PROXY:-localhost,127.0.0.1,::1}"
+
+LOG_DIR="$HOME/Library/Logs"
+LOG_FILE="$LOG_DIR/codex-proxy.log"
+STATE_DIR="$HOME/Library/Application Support/codex-proxy"
+PID_FILE="$STATE_DIR/codex.pid"
+
+mkdir -p "$LOG_DIR" "$STATE_DIR"
+
+get_executable() {
+  if [ ! -d "$APP_BUNDLE" ]; then
+    echo "错误：找不到 $APP_BUNDLE"
+    exit 1
+  fi
+
+  local plist="$APP_BUNDLE/Contents/Info.plist"
+  local exe_name=""
+
+  if [ -f "$plist" ]; then
+    exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist" 2>/dev/null || true)
+  fi
+
+  if [ -n "$exe_name" ] && [ -x "$APP_BUNDLE/Contents/MacOS/$exe_name" ]; then
+    echo "$APP_BUNDLE/Contents/MacOS/$exe_name"
+    return
+  fi
+
+  if [ -x "$APP_BUNDLE/Contents/MacOS/Codex" ]; then
+    echo "$APP_BUNDLE/Contents/MacOS/Codex"
+    return
+  fi
+
+  local candidate
+  for candidate in "$APP_BUNDLE"/Contents/MacOS/*; do
+    if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+      echo "$candidate"
+      return
+    fi
+  done
+
+  echo "错误：找不到 Codex 可执行文件"
+  exit 1
+}
+
+EXE="$(get_executable)"
+
+is_running() {
+  pgrep -f "$EXE" >/dev/null 2>&1
+}
+
+start_codex() {
+  echo "准备启动 Codex with proxy..."
+  echo "App: $APP_BUNDLE"
+  echo "Executable: $EXE"
+  echo "HTTP_PROXY: $HTTP_PROXY_ADDR"
+  echo "ALL_PROXY: $ALL_PROXY_ADDR"
+  echo "Log: $LOG_FILE"
+
+  # 先退出普通方式启动的 Codex，避免残留一个不带代理的进程
+  osascript -e 'quit app "Codex"' >/dev/null 2>&1 || true
+  sleep 1
+
+  # 如果还没退出，强制结束
+  pkill -f "$EXE" >/dev/null 2>&1 || true
+  sleep 1
+
+  nohup env \
+    HTTP_PROXY="$HTTP_PROXY_ADDR" \
+    HTTPS_PROXY="$HTTP_PROXY_ADDR" \
+    ALL_PROXY="$ALL_PROXY_ADDR" \
+    http_proxy="$HTTP_PROXY_ADDR" \
+    https_proxy="$HTTP_PROXY_ADDR" \
+    all_proxy="$ALL_PROXY_ADDR" \
+    NO_PROXY="$NO_PROXY_LIST" \
+    no_proxy="$NO_PROXY_LIST" \
+    "$EXE" >> "$LOG_FILE" 2>&1 < /dev/null &
+
+  local pid=$!
+  echo "$pid" > "$PID_FILE"
+  disown "$pid" 2>/dev/null || true
+
+  sleep 1
+
+  if is_running; then
+    echo "已启动 Codex。PID: $pid"
+    echo "之后可以用：codex-proxy status / codex-proxy log / codex-proxy stop"
+  else
+    echo "Codex 可能没有成功启动，请查看日志："
+    echo "tail -n 100 \"$LOG_FILE\""
+    exit 1
+  fi
+}
+
+stop_codex() {
+  echo "正在退出 Codex..."
+
+  osascript -e 'quit app "Codex"' >/dev/null 2>&1 || true
+  sleep 1
+
+  if is_running; then
+    pkill -f "$EXE" >/dev/null 2>&1 || true
+    sleep 1
+  fi
+
+  rm -f "$PID_FILE"
+
+  if is_running; then
+    echo "Codex 仍在运行，可能需要手动退出。"
+    exit 1
+  else
+    echo "Codex 已退出。"
+  fi
+}
+
+status_codex() {
+  if is_running; then
+    echo "Codex 正在运行："
+    pgrep -fl "$EXE"
+  else
+    echo "Codex 未运行。"
+  fi
+}
+
+show_log() {
+  touch "$LOG_FILE"
+  tail -f "$LOG_FILE"
+}
+
+case "${1:-start}" in
+  start)
+    start_codex
+    ;;
+  stop)
+    stop_codex
+    ;;
+  restart)
+    stop_codex
+    start_codex
+    ;;
+  status)
+    status_codex
+    ;;
+  log)
+    show_log
+    ;;
+  *)
+    echo "用法：codex-proxy [start|stop|restart|status|log]"
+    exit 1
+    ;;
+esac
